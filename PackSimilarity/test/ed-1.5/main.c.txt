@@ -1,0 +1,204 @@
+[31m/*  GNU ed - The GNU line editor.[m
+[31m    Copyright (C) 1993, 1994, 2006, 2007, 2008, 2009, 2010[m
+[31m    Free Software Foundation, Inc.[m
+
+[31m    This program is free software: you can redistribute it and/or modify[m
+[31m    it under the terms of the GNU General Public License as published by[m
+[31m    the Free Software Foundation, either version 3 of the License, or[m
+[31m    (at your option) any later version.[m
+
+[31m    This program is distributed in the hope that it will be useful,[m
+[31m    but WITHOUT ANY WARRANTY; without even the implied warranty of[m
+[31m    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the[m
+[31m    GNU General Public License for more details.[m
+
+[31m    You should have received a copy of the GNU General Public License[m
+[31m    along with this program.  If not, see [m[04;34m<http://www.gnu.org/licenses/>[m[31m.[m
+[31m*/[m
+[31m/*[m
+[31m    Return values: 0 for a normal exit, 1 for environmental problems[m
+[31m    (file not found, invalid flags, I/O errors, etc), 2 to indicate a[m
+[31m    corrupt or invalid input file, 3 for an internal consistency error[m
+[31m    (eg, bug) which caused ed to panic.[m
+[31m*/[m
+[31m/*[m
+[31m * CREDITS[m
+[31m *[m
+[31m *      This program is based on the editor algorithm described in[m
+[31m *      Brian W. Kernighan and P. J. Plauger's book "Software Tools[m
+[31m *      in Pascal," Addison-Wesley, 1981.[m
+[31m *[m
+[31m *      The buffering algorithm is attributed to Rodney Ruddock of[m
+[31m *      the University of Guelph, Guelph, Ontario.[m
+[31m *[m
+[31m */[m
+
+[01;34m#include[m [31m<stdio.h>[m
+[01;34m#include[m [31m<stdlib.h>[m
+[01;34m#include[m [31m<string.h>[m
+[01;34m#include[m [31m<sys/stat.h>[m
+[01;34m#include[m [31m<locale.h>[m
+
+[01;34m#include[m [31m"carg_parser.h"[m
+[01;34m#include[m [31m"ed.h"[m
+
+
+[01;34mstatic[m [01;34mconst[m [32mchar[m [31m*[m invocation_name [31m=[m [35m0[m[31m;[m
+[01;34mstatic[m [01;34mconst[m [32mchar[m [31m*[m [01;34mconst[m Program_name [31m=[m [31m"GNU Ed"[m[31m;[m
+[01;34mstatic[m [01;34mconst[m [32mchar[m [31m*[m [01;34mconst[m program_name [31m=[m [31m"ed"[m[31m;[m
+[01;34mstatic[m [01;34mconst[m [32mchar[m [31m*[m [01;34mconst[m program_year [31m=[m [31m"2010"[m[31m;[m
+
+[01;34mstatic[m [32mbool[m restricted_ [31m=[m false[31m;[m	[31m/* if set, run in restricted mode */[m
+[01;34mstatic[m [32mbool[m scripted_ [31m=[m false[31m;[m		[31m/* if set, suppress diagnostics */[m
+[01;34mstatic[m [32mbool[m traditional_ [31m=[m false[31m;[m	[31m/* if set, be backwards compatible */[m
+
+
+[32mbool[m [01;30mrestricted[m[31m([m [32mvoid[m [31m)[m [31m{[m [01;34mreturn[m restricted_[31m;[m [31m}[m
+[32mbool[m [01;30mscripted[m[31m([m [32mvoid[m [31m)[m [31m{[m [01;34mreturn[m scripted_[31m;[m [31m}[m
+[32mbool[m [01;30mtraditional[m[31m([m [32mvoid[m [31m)[m [31m{[m [01;34mreturn[m traditional_[31m;[m [31m}[m
+
+
+[01;34mstatic[m [32mvoid[m [01;30mshow_help[m[31m([m [32mvoid[m [31m)[m
+  [31m{[m
+  [01;30mprintf[m[31m([m [31m"%s - The GNU line editor.[m[35m\n[m[31m"[m[31m,[m Program_name [31m);[m
+  [01;30mprintf[m[31m([m [31m"[m[35m\n[m[31mUsage: %s [options] [file][m[35m\n[m[31m"[m[31m,[m invocation_name [31m);[m
+  [01;30mprintf[m[31m([m [31m"[m[35m\n[m[31mOptions:[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"  -h, --help                 display this help and exit[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"  -V, --version              output version information and exit[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"  -G, --traditional          run in compatibility mode[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"  -l, --loose-exit-status    exit with 0 status even if a command fails[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"  -p, --prompt=STRING        use STRING as an interactive prompt[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"  -r, --restricted           run in restricted mode[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"  -s, --quiet, --silent      suppress diagnostics[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"  -v, --verbose              be verbose[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"Start edit by reading in `file' if given.[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"If `file' begins with a `!', read output of shell command.[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"[m[35m\n[m[31mReport bugs to <bug-ed@gnu.org>.[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"Ed home page: http://www.gnu.org/software/ed/ed.html[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"General help using GNU software: http://www.gnu.org/gethelp[m[35m\n[m[31m"[m [31m);[m
+  [31m}[m
+
+
+[01;34mstatic[m [32mvoid[m [01;30mshow_version[m[31m([m [32mvoid[m [31m)[m
+  [31m{[m
+  [01;30mprintf[m[31m([m [31m"%s %s[m[35m\n[m[31m"[m[31m,[m Program_name[31m,[m PROGVERSION [31m);[m
+  [01;30mprintf[m[31m([m [31m"Copyright (C) %s Free Software Foundation, Inc.[m[35m\n[m[31m"[m[31m,[m program_year [31m);[m
+  [01;30mprintf[m[31m([m [31m"License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"This is free software: you are free to change and redistribute it.[m[35m\n[m[31m"[m [31m);[m
+  [01;30mprintf[m[31m([m [31m"There is NO WARRANTY, to the extent permitted by law.[m[35m\n[m[31m"[m [31m);[m
+  [31m}[m
+
+
+[32mvoid[m [01;30mshow_strerror[m[31m([m [01;34mconst[m [32mchar[m [31m*[m [01;34mconst[m filename[31m,[m [01;34mconst[m [32mint[m errcode [31m)[m
+  [31m{[m
+  [01;34mif[m[31m([m [31m![mscripted_ [31m)[m
+    [31m{[m
+    [01;34mif[m[31m([m filename [31m&&[m filename[31m[[m[35m0[m[31m][m [31m!=[m [35m0[m [31m)[m
+      [01;30mfprintf[m[31m([m stderr[31m,[m [31m"%s: "[m[31m,[m filename [31m);[m
+    [01;30mfprintf[m[31m([m stderr[31m,[m [31m"%s[m[35m\n[m[31m"[m[31m,[m [01;30mstrerror[m[31m([m errcode [31m)[m [31m);[m
+    [31m}[m
+  [31m}[m
+
+
+[01;34mstatic[m [32mvoid[m [01;30mshow_error[m[31m([m [01;34mconst[m [32mchar[m [31m*[m [01;34mconst[m msg[31m,[m [01;34mconst[m [32mint[m errcode[31m,[m [01;34mconst[m [32mbool[m help [31m)[m
+  [31m{[m
+  [01;34mif[m[31m([m msg [31m&&[m msg[31m[[m[35m0[m[31m][m [31m)[m
+    [31m{[m
+    [01;30mfprintf[m[31m([m stderr[31m,[m [31m"%s: %s"[m[31m,[m program_name[31m,[m msg [31m);[m
+    [01;34mif[m[31m([m errcode [31m>[m [35m0[m [31m)[m [01;30mfprintf[m[31m([m stderr[31m,[m [31m": %s"[m[31m,[m [01;30mstrerror[m[31m([m errcode [31m)[m [31m);[m
+    [01;30mfprintf[m[31m([m stderr[31m,[m [31m"[m[35m\n[m[31m"[m [31m);[m
+    [31m}[m
+  [01;34mif[m[31m([m help [31m&&[m invocation_name [31m&&[m invocation_name[31m[[m[35m0[m[31m][m [31m)[m
+    [01;30mfprintf[m[31m([m stderr[31m,[m [31m"Try `%s --help' for more information.[m[35m\n[m[31m"[m[31m,[m invocation_name [31m);[m
+  [31m}[m
+
+
+[31m/* return true if file descriptor is a regular file */[m
+[32mbool[m [01;30mis_regular_file[m[31m([m [01;34mconst[m [32mint[m fd [31m)[m
+  [31m{[m
+  [01;34mstruct[m [37mstat[m st[31m;[m
+  [01;34mreturn[m [31m([m [01;30mfstat[m[31m([m fd[31m,[m [31m&[mst [31m)[m [31m<[m [35m0[m [31m||[m [01;30mS_ISREG[m[31m([m st[31m.[mst_mode [31m)[m [31m);[m
+  [31m}[m
+
+
+[32mbool[m [01;30mmay_access_filename[m[31m([m [01;34mconst[m [32mchar[m [31m*[m [01;34mconst[m name [31m)[m
+  [31m{[m
+  [01;34mif[m[31m([m restricted_ [31m&&[m
+      [31m([m [31m*[mname [31m==[m [31m'!'[m [31m||[m [31m![m[01;30mstrcmp[m[31m([m name[31m,[m [31m".."[m [31m)[m [31m||[m [01;30mstrchr[m[31m([m name[31m,[m [31m'/'[m [31m)[m [31m)[m [31m)[m
+    [31m{[m
+    [01;30mset_error_msg[m[31m([m [31m"Shell access restricted"[m [31m);[m
+    [01;34mreturn[m false[31m;[m
+    [31m}[m
+  [01;34mreturn[m true[31m;[m
+  [31m}[m
+
+
+[32mint[m [01;30mmain[m[31m([m [01;34mconst[m [32mint[m argc[31m,[m [01;34mconst[m [32mchar[m [31m*[m [01;34mconst[m argv[31m[][m [31m)[m
+  [31m{[m
+  [32mint[m argind[31m;[m
+  [32mbool[m loose [31m=[m false[31m;[m
+  [01;34mconst[m [01;34mstruct[m [37map_Option[m options[31m[][m [31m=[m
+    [31m{[m
+    [31m{[m [31m'G'[m[31m,[m [31m"traditional"[m[31m,[m       ap_no  [31m}[m[31m,[m
+    [31m{[m [31m'h'[m[31m,[m [31m"help"[m[31m,[m              ap_no  [31m}[m[31m,[m
+    [31m{[m [31m'l'[m[31m,[m [31m"loose-exit-status"[m[31m,[m ap_no  [31m}[m[31m,[m
+    [31m{[m [31m'p'[m[31m,[m [31m"prompt"[m[31m,[m            ap_yes [31m}[m[31m,[m
+    [31m{[m [31m'r'[m[31m,[m [31m"restricted"[m[31m,[m        ap_no  [31m}[m[31m,[m
+    [31m{[m [31m's'[m[31m,[m [31m"quiet"[m[31m,[m             ap_no  [31m}[m[31m,[m
+    [31m{[m [31m's'[m[31m,[m [31m"silent"[m[31m,[m            ap_no  [31m}[m[31m,[m
+    [31m{[m [31m'v'[m[31m,[m [31m"verbose"[m[31m,[m           ap_no  [31m}[m[31m,[m
+    [31m{[m [31m'V'[m[31m,[m [31m"version"[m[31m,[m           ap_no  [31m}[m[31m,[m
+    [31m{[m  [35m0[m [31m,[m  [35m0[m[31m,[m                  ap_no [31m}[m [31m}[m[31m;[m
+
+  [01;34mstruct[m [37mArg_parser[m parser[31m;[m
+
+  [01;34mif[m[31m([m [31m![m[01;30map_init[m[31m([m [31m&[mparser[31m,[m argc[31m,[m argv[31m,[m options[31m,[m [35m0[m [31m)[m [31m)[m
+    [31m{[m [01;30mshow_error[m[31m([m [31m"Memory exhausted."[m[31m,[m [35m0[m[31m,[m false [31m);[m [01;34mreturn[m [35m1[m[31m;[m [31m}[m
+  [01;34mif[m[31m([m [01;30map_error[m[31m([m [31m&[mparser [31m)[m [31m)[m				[31m/* bad option */[m
+    [31m{[m [01;30mshow_error[m[31m([m [01;30map_error[m[31m([m [31m&[mparser [31m),[m [35m0[m[31m,[m true [31m);[m [01;34mreturn[m [35m1[m[31m;[m [31m}[m
+  invocation_name [31m=[m argv[31m[[m[35m0[m[31m];[m
+
+  [01;34mfor[m[31m([m argind [31m=[m [35m0[m[31m;[m argind [31m<[m [01;30map_arguments[m[31m([m [31m&[mparser [31m);[m [31m++[margind [31m)[m
+    [31m{[m
+    [01;34mconst[m [32mint[m code [31m=[m [01;30map_code[m[31m([m [31m&[mparser[31m,[m argind [31m);[m
+    [01;34mconst[m [32mchar[m [31m*[m [01;34mconst[m arg [31m=[m [01;30map_argument[m[31m([m [31m&[mparser[31m,[m argind [31m);[m
+    [01;34mif[m[31m([m [31m![mcode [31m)[m [01;34mbreak[m[31m;[m					[31m/* no more options */[m
+    [01;34mswitch[m[31m([m code [31m)[m
+      [31m{[m
+      [01;34mcase[m [31m'G'[m[31m:[m traditional_ [31m=[m true[31m;[m [01;34mbreak[m[31m;[m	[31m/* backward compatibility */[m
+      [01;34mcase[m [31m'h'[m[31m:[m [01;30mshow_help[m[31m();[m [01;34mreturn[m [35m0[m[31m;[m
+      [01;34mcase[m [31m'l'[m[31m:[m loose [31m=[m true[31m;[m [01;34mbreak[m[31m;[m
+      [01;34mcase[m [31m'p'[m[31m:[m [01;30mset_prompt[m[31m([m arg [31m);[m [01;34mbreak[m[31m;[m
+      [01;34mcase[m [31m'r'[m[31m:[m restricted_ [31m=[m true[31m;[m [01;34mbreak[m[31m;[m
+      [01;34mcase[m [31m's'[m[31m:[m scripted_ [31m=[m true[31m;[m [01;34mbreak[m[31m;[m
+      [01;34mcase[m [31m'v'[m[31m:[m [01;30mset_verbose[m[31m();[m [01;34mbreak[m[31m;[m
+      [01;34mcase[m [31m'V'[m[31m:[m [01;30mshow_version[m[31m();[m [01;34mreturn[m [35m0[m[31m;[m
+      [01;34mdefault[m [31m:[m [01;30mshow_error[m[31m([m [31m"internal error: uncaught option."[m[31m,[m [35m0[m[31m,[m false [31m);[m
+                [01;34mreturn[m [35m3[m[31m;[m
+      [31m}[m
+    [31m}[m
+  [01;30msetlocale[m[31m([m LC_ALL[31m,[m [31m""[m [31m);[m
+  [01;34mif[m[31m([m [31m![m[01;30minit_buffers[m[31m()[m [31m)[m [01;34mreturn[m [35m1[m[31m;[m
+
+  [01;34mwhile[m[31m([m argind [31m<[m [01;30map_arguments[m[31m([m [31m&[mparser [31m)[m [31m)[m
+    [31m{[m
+    [01;34mconst[m [32mchar[m [31m*[m [01;34mconst[m arg [31m=[m [01;30map_argument[m[31m([m [31m&[mparser[31m,[m argind [31m);[m
+    [01;34mif[m[31m([m [31m![m[01;30mstrcmp[m[31m([m arg[31m,[m [31m"-"[m [31m)[m [31m)[m [31m{[m scripted_ [31m=[m true[31m;[m [31m++[margind[31m;[m [01;34mcontinue[m[31m;[m [31m}[m
+    [01;34mif[m[31m([m [01;30mmay_access_filename[m[31m([m arg [31m)[m [31m)[m
+      [31m{[m
+      [01;34mif[m[31m([m [01;30mread_file[m[31m([m arg[31m,[m [35m0[m [31m)[m [31m<[m [35m0[m [31m&&[m [01;30mis_regular_file[m[31m([m [35m0[m [31m)[m [31m)[m
+        [01;34mreturn[m [35m2[m[31m;[m
+      [01;34melse[m [01;34mif[m[31m([m arg[31m[[m[35m0[m[31m][m [31m!=[m [31m'!'[m [31m)[m [01;30mset_def_filename[m[31m([m arg [31m);[m
+      [31m}[m
+    [01;34melse[m
+      [31m{[m
+      [01;30mfputs[m[31m([m [31m"?[m[35m\n[m[31m"[m[31m,[m stderr [31m);[m
+      [01;34mif[m[31m([m arg[31m[[m[35m0[m[31m][m [31m)[m [01;30mset_error_msg[m[31m([m [31m"Invalid filename"[m [31m);[m
+      [01;34mif[m[31m([m [01;30mis_regular_file[m[31m([m [35m0[m [31m)[m [31m)[m [01;34mreturn[m [35m2[m[31m;[m
+      [31m}[m
+    [01;34mbreak[m[31m;[m
+    [31m}[m
+  [01;30map_free[m[31m([m [31m&[mparser [31m);[m
+
+  [01;34mreturn[m [01;30mmain_loop[m[31m([m loose [31m);[m
+  [31m}[m

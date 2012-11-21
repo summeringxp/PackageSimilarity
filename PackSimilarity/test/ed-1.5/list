@@ -1,0 +1,9 @@
+./buffer.c
+./carg_parser.c
+./doc
+./global.c
+./io.c
+./main.c
+./main_loop.c
+./regex.c
+./signal.c
