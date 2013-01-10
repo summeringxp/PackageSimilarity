@@ -101,4 +101,12 @@ public class Config {
 		"_tgz"
 	};
 	public static final String DEFAULT_REVIEW = "analyze";
+	public static boolean isSourceCode(String path) {
+		for (String ext : Config.extension2language.keySet()) {
+			if (path.toLowerCase().endsWith(ext)) {
+				return true;
+			}
+		}
+		return false;
+	}
 }

@@ -194,8 +194,7 @@ public class Tokenizer {
 		return sb.toString().replace("\r\n", "\n").trim();
 	}
 
-	public int getFileHash(String filepath)
-			throws IOException {
+	public int getFileHash(String filepath) throws IOException {
 		InputStream stream = new FileInputStream(filepath);
 		StringBuffer encodedContent = new StringBuffer();
 		LanguageDefinition langdef = getLexerByFilename(filepath);
@@ -211,9 +210,32 @@ public class Tokenizer {
 			String value = filecontent.substring(start, end);
 
 			String type = getType(ss.getToken(), value.trim().toLowerCase());
-			if(type!=null)encodedContent.append(type);
+			if (type != null)
+				encodedContent.append(type);
 		}
 		stream.close();
+
+		return encodedContent.toString().hashCode();
+	}
+
+	public int getContentHash(String filepath,String filecontent) {
+		LanguageDefinition langdef = getLexerByFilename(filepath);
+		StringBuffer encodedContent = new StringBuffer();
+		RegexLexerIterator iter = new RegexLexer(langdef, filecontent)
+				.iterator();
+		while (iter.hasNext()) {
+			SyntaxSpan ss = iter.next();
+			int start = ss.getStartPos();
+			int end = ss.getEndPos();
+			String value = filecontent.substring(start, end);
+
+			String type = getType(ss.getToken(), value.trim().toLowerCase());
+			
+			if (type != null)
+				encodedContent.append(type);
+		}
+		//System.out.println(encodedContent.toString());
+	
 		return encodedContent.toString().hashCode();
 	}
 
